@@ -59,8 +59,3 @@ async def upload_image(tipo: str = Form(...), file: UploadFile = File(...)):
         "diagnóstico_IA": simulated_response,
         "nota": "Essa é uma simulação. A integração com IA real da Replicate será feita em seguida."
     }
-fastapi
-uvicorn
-python-multipart
-python-dotenv
-requests
