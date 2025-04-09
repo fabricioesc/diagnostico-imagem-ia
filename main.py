@@ -1,61 +1,59 @@
-import os
-import shutil
+import streamlit as st
 import requests
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+import os
 
-load_dotenv()
+st.set_page_config(page_title="Diagnóstico de Imagens com IA", layout="centered")
 
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+st.title("🧠 Diagnóstico por IA de Exames de Pulmão e Cérebro")
+st.markdown("Envie uma imagem (raio-x, TC ou RM) e a IA irá analisar e descrever o que vê na imagem.")
 
-app = FastAPI()
+tipo_exame = st.selectbox("Escolha o tipo de exame:", ["Pulmão", "Cérebro"])
+imagem = st.file_uploader("📤 Envie a imagem do exame (JPG ou PNG)", type=["jpg", "jpeg", "png"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+API_TOKEN = os.environ.get("REPLICATE_API_TOKEN")
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-@app.get("/", response_class=HTMLResponse)
-async def main():
-    return """
-    <html>
-        <head>
-            <title>Diagnóstico de Imagem IA</title>
-        </head>
-        <body style='font-family:Arial;text-align:center;padding-top:50px;'>
-            <h1>Selecione o tipo de exame</h1>
-            <form action='/upload' enctype='multipart/form-data' method='post'>
-                <label><input type='radio' name='tipo' value='pulmao' checked/> Pulmão</label>
-                <label><input type='radio' name='tipo' value='cerebro'/> Cérebro</label><br/><br/>
-                <input name='file' type='file' accept='image/*'/><br/><br/>
-                <input type='submit' value='Analisar'/>
-            </form>
-        </body>
-    </html>
-    """
-
-@app.post("/upload")
-async def upload_image(tipo: str = Form(...), file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Aqui vamos simular o diagnóstico e depois substituir com chamada real à Replicate
-    if tipo == "pulmao":
-        simulated_response = "Detectado: Possível pneumonia intersticial na base direita."
-    else:
-        simulated_response = "Detectado: Sinais de AVC isquêmico em região parietal esquerda."
-
-    return {
-        "tipo_exame": tipo,
-        "arquivo": file.filename,
-        "diagnóstico_IA": simulated_response,
-        "nota": "Essa é uma simulação. A integração com IA real da Replicate será feita em seguida."
+def analisar_imagem_na_replicate(imagem_bytes):
+    url = "https://api.replicate.com/v1/predictions"
+    headers = {
+        "Authorization": f"Token {API_TOKEN}",
+        "Content-Type": "application/json",
     }
+    # Upload da imagem temporariamente no Replicate
+    upload_url = "https://dreambooth-api-experimental.replicate.delivery/upload"
+    resp = requests.post(upload_url, files={"file": imagem_bytes})
+    image_url = resp.json()["url"]
+
+    payload = {
+        "version": "fc24cfc809edf0eb1ceba0c6033c49f3bbd240b99eae0cd1e909b1930c80a9a4",
+        "input": {
+            "image": image_url,
+            "mode": "fast"
+        }
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    prediction = response.json()
+
+    # Esperar até terminar
+    prediction_url = prediction["urls"]["get"]
+    status = prediction["status"]
+
+    while status not in ["succeeded", "failed"]:
+        result = requests.get(prediction_url, headers=headers).json()
+        status = result["status"]
+        if status == "succeeded":
+            return result["output"]
+        elif status == "failed":
+            return "A análise falhou. Tente novamente."
+
+    return "Erro ao processar a imagem."
+
+if imagem is not None:
+    st.image(imagem, caption="Imagem enviada", use_column_width=True)
+
+    if st.button("🔍 Analisar com IA"):
+        with st.spinner("A IA está analisando a imagem..."):
+            resultado = analisar_imagem_na_replicate(imagem)
+            st.subheader("🩺 Resultado da IA:")
+            st.markdown(f"**Tipo de exame:** {tipo_exame}")
+            st.markdown(f"**Diagnóstico e explicação:**\n\n{resultado}")
